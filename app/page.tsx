@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+import { ErrorBoundary, CardErrorBoundary } from '../components/ErrorBoundary';
+import { useKeyboardShortcuts, KeyboardShortcutsHelp } from '../components/KeyboardShortcuts';
 
 interface Metrics {
   cpu: number;
@@ -43,6 +45,9 @@ interface GitHubData {
   }>;
 }
 
+const TABS = ['overview', 'activity', 'services'] as const;
+type Tab = typeof TABS[number];
+
 export default function Home() {
   const [metrics, setMetrics] = React.useState<Metrics>({
     cpu: 0, memory: 0, disk: 0, load: 0, timestamp: ''
@@ -53,43 +58,57 @@ export default function Home() {
     summary: { total: number; up: number; down: number; errors: number; overall: string };
     services: ServiceStatus[];
   } | null>(null);
-  const [activeTab, setActiveTab] = React.useState<'overview' | 'activity' | 'services'>('overview');
+  const [activeTab, setActiveTab] = React.useState<Tab>('overview');
   const [lastUpdate, setLastUpdate] = React.useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+
+  const fetchAll = React.useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      // Fetch all data in parallel
+      const [metricsRes, weatherRes, githubRes, servicesRes] = await Promise.allSettled([
+        fetch('/api/metrics'),
+        fetch('https://api.open-meteo.com/v1/forecast?latitude=44.5&longitude=26.0&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m'),
+        fetch('/api/github'),
+        fetch('/api/services')
+      ]);
+
+      if (metricsRes.status === 'fulfilled' && metricsRes.value.ok) {
+        setMetrics(await metricsRes.value.json());
+      }
+
+      if (weatherRes.status === 'fulfilled' && weatherRes.value.ok) {
+        const weatherData = await weatherRes.value.json();
+        setWeather(weatherData.current);
+      }
+
+      if (githubRes.status === 'fulfilled' && githubRes.value.ok) {
+        setGithub(await githubRes.value.json());
+      }
+
+      if (servicesRes.status === 'fulfilled' && servicesRes.value.ok) {
+        setServices(await servicesRes.value.json());
+      }
+
+      setLastUpdate(new Date());
+    } catch (e) {
+      console.error('Fetch error:', e);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
 
   React.useEffect(() => {
-    const fetchAll = async () => {
-      try {
-        // Fetch metrics
-        const metricsRes = await fetch('/api/metrics');
-        if (metricsRes.ok) setMetrics(await metricsRes.json());
-
-        // Fetch weather
-        const weatherRes = await fetch(
-          'https://api.open-meteo.com/v1/forecast?latitude=44.5&longitude=26.0&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m'
-        );
-        if (weatherRes.ok) {
-          const weatherData = await weatherRes.json();
-          setWeather(weatherData.current);
-        }
-
-        // Fetch GitHub
-        const githubRes = await fetch('/api/github');
-        if (githubRes.ok) setGithub(await githubRes.json());
-
-        // Fetch services health
-        const servicesRes = await fetch('/api/services');
-        if (servicesRes.ok) setServices(await servicesRes.json());
-
-        setLastUpdate(new Date());
-      } catch (e) {
-        console.error('Fetch error:', e);
-      }
-    };
-
     fetchAll();
-    const interval = setInterval(fetchAll, 30000); // 30 second refresh
+    const interval = setInterval(fetchAll, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchAll]);
+
+  const { showHelp, setShowHelp } = useKeyboardShortcuts({
+    onRefresh: fetchAll,
+    onTabChange: (tab) => setActiveTab(tab as Tab),
+    tabs: [...TABS]
+  });
 
   const getWeatherIcon = (code: number) => {
     if (code === 0) return '☀️';
@@ -114,322 +133,320 @@ export default function Home() {
   };
 
   return (
-    <div style={styles.container}>
-      <header style={styles.header}>
-        <h1 style={styles.title}>🔮 StefanOS V2</h1>
-        <div style={styles.headerRight}>
-          {lastUpdate && (
-            <span style={styles.lastUpdate}>Updated {formatTime(lastUpdate.toISOString())}</span>
-          )}
-          <div style={styles.statusBadge}>
-            <span style={styles.statusDot}></span>
-            Live
-          </div>
-        </div>
-      </header>
-
-      <nav style={styles.nav}>
-        {(['overview', 'activity', 'services'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            style={{
-              ...styles.navButton,
-              ...(activeTab === tab ? styles.navButtonActive : {})
-            }}
-          >
-            {tab === 'overview' && '📊 Overview'}
-            {tab === 'activity' && '🐙 Activity'}
-            {tab === 'services' && '🔌 Services'}
-          </button>
-        ))}
-      </nav>
-
-      {activeTab === 'overview' && (
-        <div style={styles.grid}>
-          {/* Weather Card */}
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <h2 style={styles.cardTitle}>🌤️ Weather · Ganeasa</h2>
+    <ErrorBoundary>
+      <div style={styles.container}>
+        <KeyboardShortcutsHelp visible={showHelp} onClose={() => setShowHelp(false)} />
+        
+        <header style={styles.header}>
+          <h1 style={styles.title}>🔮 StefanOS V2</h1>
+          <div style={styles.headerRight}>
+            {lastUpdate && (
+              <span style={styles.lastUpdate}>
+                {isRefreshing ? '🔄 Updating...' : `Updated ${formatTime(lastUpdate.toISOString())}`}
+              </span>
+            )}
+            <button 
+              onClick={fetchAll} 
+              style={styles.refreshButton}
+              disabled={isRefreshing}
+              title="Refresh (R)"
+            >
+              {isRefreshing ? '⏳' : '🔄'}
+            </button>
+            <button
+              onClick={() => setShowHelp(true)}
+              style={styles.helpButton}
+              title="Keyboard shortcuts (?)"
+            >
+              ⌨️
+            </button>
+            <div style={styles.statusBadge}>
+              <span style={styles.statusDot}></span>
+              Live
             </div>
-            {weather ? (
-              <>
-                <div style={styles.weatherMain}>
-                  <span style={styles.weatherIcon}>{getWeatherIcon(weather.weather_code)}</span>
-                  <span style={styles.weatherTemp}>{Math.round(weather.temperature_2m)}°</span>
+          </div>
+        </header>
+
+        <nav style={styles.nav}>
+          {TABS.map((tab, index) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                ...styles.navButton,
+                ...(activeTab === tab ? styles.navButtonActive : {})
+              }}
+              title={`${index + 1}`}
+            >
+              {tab === 'overview' && '📊 Overview'}
+              {tab === 'activity' && '🐙 Activity'}
+              {tab === 'services' && '🔌 Services'}
+            </button>
+          ))}
+        </nav>
+
+        {activeTab === 'overview' && (
+          <div style={styles.grid}>
+            <CardErrorBoundary title="Weather">
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <h2 style={styles.cardTitle}>🌤️ Weather · Ganeasa</h2>
                 </div>
-                <div style={styles.weatherDetails}>
-                  <div style={styles.weatherMetric}>
-                    <span style={styles.weatherLabel}>Feels Like</span>
-                    <span style={styles.weatherValue}>{Math.round(weather.apparent_temperature)}°</span>
-                  </div>
-                  <div style={styles.weatherMetric}>
-                    <span style={styles.weatherLabel}>Humidity</span>
-                    <span style={styles.weatherValue}>{weather.relative_humidity_2m}%</span>
-                  </div>
-                  <div style={styles.weatherMetric}>
-                    <span style={styles.weatherLabel}>Wind</span>
-                    <span style={styles.weatherValue}>{Math.round(weather.wind_speed_10m)} km/h</span>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div style={styles.loading}>Loading weather...</div>
-            )}
-          </div>
-
-          {/* System Metrics */}
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <h2 style={styles.cardTitle}>📊 System Metrics</h2>
-            </div>
-            <MetricBar label="CPU" value={metrics.cpu} />
-            <MetricBar label="Memory" value={metrics.memory} />
-            <MetricBar label="Disk" value={metrics.disk} />
-            <MetricBar label="Load" value={metrics.load} />
-            
-            {/* Mini sparkline */}
-            {metrics.history && metrics.history.length > 0 && (
-              <div style={styles.sparklineContainer}>
-                <svg viewBox="0 0 100 20" style={styles.sparkline}>
-                  <polyline
-                    fill="none"
-                    stroke="#58a6ff"
-                    strokeWidth="0.5"
-                    points={metrics.history.map((h, i) => {
-                      const x = (i / (metrics.history!.length - 1)) * 100;
-                      const y = 20 - (h.cpu / 100) * 20;
-                      return `${x},${y}`;
-                    }).join(' ')}
-                  />
-                </svg>
-                <span style={styles.sparklineLabel}>CPU (24h)</span>
-              </div>
-            )}
-          </div>
-
-          {/* Quick Stats */}
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <h2 style={styles.cardTitle}>📈 Quick Stats</h2>
-            </div>
-            <div style={styles.statsGrid}>
-              <div style={styles.statBox}>
-                <div style={styles.statNumber}>{github?.repos || 0}</div>
-                <div style={styles.statLabel}>Repos</div>
-              </div>
-              <div style={styles.statBox}>
-                <div style={styles.statNumber}>{github?.stars || 0}</div>
-                <div style={styles.statLabel}>Stars</div>
-              </div>
-              <div style={styles.statBox}>
-                <div style={styles.statNumber}>{services?.summary.up || 0}/{services?.summary.total || 0}</div>
-                <div style={styles.statLabel}>Services Up</div>
-              </div>
-              <div style={styles.statBox}>
-                <div style={styles.statNumber}>{github?.openPRs?.length || 0}</div>
-                <div style={styles.statLabel}>Open PRs</div>
-              </div>
-            </div>
-            
-            {/* Top Languages */}
-            {github?.languages && github.languages.length > 0 && (
-              <div style={styles.languages}>
-                <div style={styles.sectionLabel}>Top Languages</div>
-                <div style={styles.languageTags}>
-                  {github.languages.map(([lang, count]) => (
-                    <span key={lang} style={styles.languageTag}>
-                      {lang}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Open PRs */}
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <h2 style={styles.cardTitle}>🔀 Open Pull Requests</h2>
-            </div>
-            {github?.openPRs && github.openPRs.length > 0 ? (
-              <div style={styles.prList}>
-                {github.openPRs.map((pr) => (
-                  <a
-                    key={`${pr.repo}-${pr.number}`}
-                    href={pr.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={styles.prItem}
-                  >
-                    <div style={styles.prRepo}>{pr.repo}</div>
-                    <div style={styles.prTitle}>#{pr.number} {pr.title}</div>
-                  </a>
-                ))}
-              </div>
-            ) : (
-              <div style={styles.emptyState}>No open PRs 🎉</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'activity' && (
-        <div style={styles.singleColumn}>
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <h2 style={styles.cardTitle}>🐙 Recent GitHub Activity</h2>
-            </div>
-            {github?.recentActivity && github.recentActivity.length > 0 ? (
-              <div style={styles.activityList}>
-                {github.recentActivity.map((activity, i) => (
-                  <div key={i} style={styles.activityItem}>
-                    <div style={styles.activityIcon}>
-                      {activity.type === 'PushEvent' && '⬆️'}
-                      {activity.type === 'CreateEvent' && '✨'}
-                      {activity.type === 'PullRequestEvent' && '🔀'}
-                      {activity.type === 'IssuesEvent' && '📋'}
-                      {activity.type === 'WatchEvent' && '⭐'}
-                      {!['PushEvent', 'CreateEvent', 'PullRequestEvent', 'IssuesEvent', 'WatchEvent'].includes(activity.type) && '📌'}
+                {weather ? (
+                  <>
+                    <div style={styles.weatherMain}>
+                      <span style={styles.weatherIcon}>{getWeatherIcon(weather.weather_code)}</span>
+                      <span style={styles.weatherTemp}>{Math.round(weather.temperature_2m)}°</span>
                     </div>
-                    <div style={styles.activityContent}>
-                      <div style={styles.activityText}>
-                        <strong>{activity.action}</strong> {activity.detail && <span>{activity.detail} </span>}
-                        in <strong>{activity.repo}</strong>
+                    <div style={styles.weatherDetails}>
+                      <div style={styles.weatherMetric}>
+                        <span style={styles.weatherLabel}>Feels Like</span>
+                        <span style={styles.weatherValue}>{Math.round(weather.apparent_temperature)}°</span>
                       </div>
-                      <div style={styles.activityTime}>{getRelativeTime(activity.time)}</div>
+                      <div style={styles.weatherMetric}>
+                        <span style={styles.weatherLabel}>Humidity</span>
+                        <span style={styles.weatherValue}>{weather.relative_humidity_2m}%</span>
+                      </div>
+                      <div style={styles.weatherMetric}>
+                        <span style={styles.weatherLabel}>Wind</span>
+                        <span style={styles.weatherValue}>{Math.round(weather.wind_speed_10m)} km/h</span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  </>
+                ) : (
+                  <div style={styles.loading}>Loading weather...</div>
+                )}
               </div>
-            ) : (
-              <div style={styles.emptyState}>No recent activity</div>
-            )}
-          </div>
-        </div>
-      )}
+            </CardErrorBoundary>
 
-      {activeTab === 'services' && (
-        <div style={styles.singleColumn}>
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <h2 style={styles.cardTitle}>🔌 Service Health Monitor</h2>
-              {services?.summary && (
-                <span
-                  style={{
-                    ...styles.overallStatus,
-                    background:
-                      services.summary.overall === 'healthy'
-                        ? '#238636'
-                        : services.summary.overall === 'degraded'
-                        ? '#f0883e'
-                        : '#da3633'
-                  }}
-                >
-                  {services.summary.overall.toUpperCase()}
-                </span>
-              )}
-            </div>
-            
-            {services?.services ? (
-              <div style={styles.serviceList}>
-                {services.services.map((service) => (
-                  <div key={service.name} style={styles.serviceItem}>
-                    <div style={styles.serviceLeft}>
-                      <span
-                        style={{
-                          ...styles.serviceDot,
-                          background:
-                            service.status === 'up'
-                              ? '#238636'
-                              : service.status === 'down'
-                              ? '#da3633'
-                              : '#f0883e',
-                          boxShadow:
-                            service.status === 'up'
-                              ? '0 0 8px #238636'
-                              : service.status === 'down'
-                              ? '0 0 8px #da3633'
-                              : '0 0 8px #f0883e'
-                        }}
+            <CardErrorBoundary title="System Metrics">
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <h2 style={styles.cardTitle}>📊 System Metrics</h2>
+                </div>
+                <MetricBar label="CPU" value={metrics.cpu} />
+                <MetricBar label="Memory" value={metrics.memory} />
+                <MetricBar label="Disk" value={metrics.disk} />
+                <MetricBar label="Load" value={metrics.load} />
+                
+                {metrics.history && metrics.history.length > 0 && (
+                  <div style={styles.sparklineContainer}>
+                    <svg viewBox="0 0 100 20" style={styles.sparkline}>
+                      <polyline
+                        fill="none"
+                        stroke="#58a6ff"
+                        strokeWidth="0.5"
+                        points={metrics.history.map((h, i) => {
+                          const x = (i / (metrics.history!.length - 1)) * 100;
+                          const y = 20 - (h.cpu / 100) * 20;
+                          return `${x},${y}`;
+                        }).join(' ')}
                       />
-                      <span style={styles.serviceName}>{service.name}</span>
-                    </div>
-                    
-                    <div style={styles.serviceRight}>
-                      <span style={styles.serviceTime}>{service.responseTime}ms</span>
-                      {service.error && (
-                        <span style={styles.serviceError}>{service.error}</span>
-                      )}
+                    </svg>
+                    <span style={styles.sparklineLabel}>CPU (24h)</span>
+                  </div>
+                )}
+              </div>
+            </CardErrorBoundary>
+
+            <CardErrorBoundary title="Quick Stats">
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <h2 style={styles.cardTitle}>📈 Quick Stats</h2>
+                </div>
+                <div style={styles.statsGrid}>
+                  <div style={styles.statBox}>
+                    <div style={styles.statNumber}>{github?.repos || 0}</div>
+                    <div style={styles.statLabel}>Repos</div>
+                  </div>
+                  <div style={styles.statBox}>
+                    <div style={styles.statNumber}>{github?.stars || 0}</div>
+                    <div style={styles.statLabel}>Stars</div>
+                  </div>
+                  <div style={styles.statBox}>
+                    <div style={styles.statNumber}>{services?.summary.up || 0}/{services?.summary.total || 0}</div>
+                    <div style={styles.statLabel}>Services Up</div>
+                  </div>
+                  <div style={styles.statBox}>
+                    <div style={styles.statNumber}>{github?.openPRs?.length || 0}</div>
+                    <div style={styles.statLabel}>Open PRs</div>
+                  </div>
+                </div>
+                
+                {github?.languages && github.languages.length > 0 && (
+                  <div style={styles.languages}>
+                    <div style={styles.sectionLabel}>Top Languages</div>
+                    <div style={styles.languageTags}>
+                      {github.languages.map(([lang]) => (
+                        <span key={lang} style={styles.languageTag}>{lang}</span>
+                      ))}
                     </div>
                   </div>
-                ))}
+                )}
               </div>
-            ) : (
-              <div style={styles.loading}>Checking services...</div>
-            )}
+            </CardErrorBoundary>
+
+            <CardErrorBoundary title="Open Pull Requests">
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <h2 style={styles.cardTitle}>🔀 Open Pull Requests</h2>
+                </div>
+                {github?.openPRs && github.openPRs.length > 0 ? (
+                  <div style={styles.prList}>
+                    {github.openPRs.map((pr) => (
+                      <a
+                        key={`${pr.repo}-${pr.number}`}
+                        href={pr.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={styles.prItem}
+                      >
+                        <div style={styles.prRepo}>{pr.repo}</div>
+                        <div style={styles.prTitle}>#{pr.number} {pr.title}</div>
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={styles.emptyState}>No open PRs 🎉</div>
+                )}
+              </div>
+            </CardErrorBoundary>
+          </div>
+        )}
+
+        {activeTab === 'activity' && (
+          <div style={styles.singleColumn}>
+            <CardErrorBoundary title="Recent GitHub Activity">
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <h2 style={styles.cardTitle}>🐙 Recent GitHub Activity</h2>
+                </div>
+                {github?.recentActivity && github.recentActivity.length > 0 ? (
+                  <div style={styles.activityList}>
+                    {github.recentActivity.map((activity, i) => (
+                      <div key={i} style={styles.activityItem}>
+                        <div style={styles.activityIcon}>
+                          {activity.type === 'PushEvent' && '⬆️'}
+                          {activity.type === 'CreateEvent' && '✨'}
+                          {activity.type === 'PullRequestEvent' && '🔀'}
+                          {activity.type === 'IssuesEvent' && '📋'}
+                          {activity.type === 'WatchEvent' && '⭐'}
+                          {!['PushEvent', 'CreateEvent', 'PullRequestEvent', 'IssuesEvent', 'WatchEvent'].includes(activity.type) && '📌'}
+                        </div>
+                        <div style={styles.activityContent}>
+                          <div style={styles.activityText}>
+                            <strong>{activity.action}</strong> {activity.detail && <span>{activity.detail} </span>}
+                            in <strong>{activity.repo}</strong>
+                          </div>
+                          <div style={styles.activityTime}>{getRelativeTime(activity.time)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={styles.emptyState}>No recent activity</div>
+                )}
+              </div>
+            </CardErrorBoundary>
+          </div>
+        )}
+
+        {activeTab === 'services' && (
+          <div style={styles.singleColumn}>
+            <CardErrorBoundary title="Service Health Monitor">
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <h2 style={styles.cardTitle}>🔌 Service Health Monitor</h2>
+                  {services?.summary && (
+                    <span
+                      style={{
+                        ...styles.overallStatus,
+                        background: services.summary.overall === 'healthy' ? '#238636' 
+                          : services.summary.overall === 'degraded' ? '#f0883e' : '#da3633'
+                      }}
+                    >
+                      {services.summary.overall.toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                
+                {services?.services ? (
+                  <div style={styles.serviceList}>
+                    {services.services.map((service) => (
+                      <div key={service.name} style={styles.serviceItem}>
+                        <div style={styles.serviceLeft}>
+                          <span
+                            style={{
+                              ...styles.serviceDot,
+                              background: service.status === 'up' ? '#238636' 
+                                : service.status === 'down' ? '#da3633' : '#f0883e',
+                              boxShadow: service.status === 'up' ? '0 0 8px #238636' 
+                                : service.status === 'down' ? '0 0 8px #da3633' : '0 0 8px #f0883e'
+                            }}
+                          />
+                          <span style={styles.serviceName}>{service.name}</span>
+                        </div>
+                        <div style={styles.serviceRight}>
+                          <span style={styles.serviceTime}>{service.responseTime}ms</span>
+                          {service.error && <span style={styles.serviceError}>{service.error}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={styles.loading}>Checking services...</div>
+                )}
+                
+                <div style={styles.serviceNote}>
+                  Auto-refreshes every 30 seconds · Last check:{' '}
+                  {services?.services[0]?.lastChecked ? formatTime(services.services[0].lastChecked) : 'never'}
+                </div>
+              </div>
+            </CardErrorBoundary>
             
-            <div style={styles.serviceNote}>
-              Auto-refreshes every 30 seconds · Last check:{' '}
-              {services?.services[0]?.lastChecked
-                ? formatTime(services.services[0].lastChecked)
-                : 'never'}
-            </div>
+            <CardErrorBoundary title="Quick Links">
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <h2 style={styles.cardTitle}>🔗 Quick Links</h2>
+                </div>
+                <div style={styles.linkGrid}>
+                  <a href="https://github.com/dekolor" target="_blank" rel="noopener" style={styles.linkCard}>
+                    <span style={styles.linkIcon}>🐙</span>
+                    <span style={styles.linkText}>GitHub</span>
+                  </a>
+                  <a href="https://reconcileai-demo.loca.lt" target="_blank" rel="noopener" style={styles.linkCard}>
+                    <span style={styles.linkIcon}>🤖</span>
+                    <span style={styles.linkText}>ReconcileAI</span>
+                  </a>
+                  <a href="https://filme-kohl.vercel.app" target="_blank" rel="noopener" style={styles.linkCard}>
+                    <span style={styles.linkIcon}>🎬</span>
+                    <span style={styles.linkText}>Filme</span>
+                  </a>
+                  <a href="https://awb-tracker-demo.vercel.app" target="_blank" rel="noopener" style={styles.linkCard}>
+                    <span style={styles.linkIcon}>📦</span>
+                    <span style={styles.linkText}>AWB Tracker</span>
+                  </a>
+                </div>
+              </div>
+            </CardErrorBoundary>
           </div>
-          
-          {/* Quick Links */}
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <h2 style={styles.cardTitle}>🔗 Quick Links</h2>
-            </div>
-            <div style={styles.linkGrid}>
-              <a href="https://github.com/dekolor" target="_blank" rel="noopener" style={styles.linkCard}>
-                <span style={styles.linkIcon}>🐙</span>
-                <span style={styles.linkText}>GitHub</span>
-              </a>
-              <a href="https://reconcileai-demo.loca.lt" target="_blank" rel="noopener" style={styles.linkCard}>
-                <span style={styles.linkIcon}>🤖</span>
-                <span style={styles.linkText}>ReconcileAI</span>
-              </a>
-              <a href="https://filme-kohl.vercel.app" target="_blank" rel="noopener" style={styles.linkCard}>
-                <span style={styles.linkIcon}>🎬</span>
-                <span style={styles.linkText}>Filme</span>
-              </a>
-              <a href="https://awb-tracker-demo.vercel.app" target="_blank" rel="noopener" style={styles.linkCard}>
-                <span style={styles.linkIcon}>📦</span>
-                <span style={styles.linkText}>AWB Tracker</span>
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </ErrorBoundary>
   );
 }
 
 function MetricBar({ label, value }: { label: string; value: number }) {
-  const getColor = (v: number) => {
-    if (v > 80) return '#da3633';
-    if (v > 60) return '#f0883e';
-    return '#238636';
-  };
+  const getColor = (v: number) => v > 80 ? '#da3633' : v > 60 ? '#f0883e' : '#238636';
 
   return (
     <div style={styles.metricRow}>
       <div style={styles.metricHeader}>
         <span style={styles.metricLabel}>{label}</span>
-        <span style={{ ...styles.metricValue, color: getColor(value) }}>
-          {Math.round(value)}%
-        </span>
+        <span style={{ ...styles.metricValue, color: getColor(value) }}>{Math.round(value)}%</span>
       </div>
       <div style={styles.barContainer}>
-        <div
-          style={{
-            ...styles.barFill,
-            width: `${Math.min(value, 100)}%`,
-            background: getColor(value)
-          }}
-        />
+        <div style={{ ...styles.barFill, width: `${Math.min(value, 100)}%`, background: getColor(value) }} />
       </div>
     </div>
   );
@@ -461,11 +478,29 @@ const styles: Record<string, React.CSSProperties> = {
   headerRight: {
     display: 'flex',
     alignItems: 'center',
-    gap: '1rem'
+    gap: '0.75rem'
   },
   lastUpdate: {
     color: '#8b949e',
     fontSize: '0.875rem'
+  },
+  refreshButton: {
+    background: '#161b22',
+    border: '1px solid #30363d',
+    borderRadius: '6px',
+    padding: '0.5rem 0.75rem',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    transition: 'all 0.2s'
+  },
+  helpButton: {
+    background: '#161b22',
+    border: '1px solid #30363d',
+    borderRadius: '6px',
+    padding: '0.5rem 0.75rem',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    transition: 'all 0.2s'
   },
   statusBadge: {
     display: 'flex',
