@@ -86,7 +86,8 @@ export function KeyboardShortcutsHelp({
   const shortcuts = [
     { key: '?', description: 'Toggle this help' },
     { key: 'R', description: 'Refresh all data' },
-    { key: '1-3', description: 'Switch to tab 1-3' },
+    { key: '1-4', description: 'Switch to tab 1-4' },
+    { key: 'T', description: 'Quick add task' },
     { key: '← →', description: 'Navigate tabs' },
   ];
 

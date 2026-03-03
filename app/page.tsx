@@ -45,8 +45,16 @@ interface GitHubData {
   }>;
 }
 
-const TABS = ['overview', 'activity', 'services'] as const;
+const TABS = ['overview', 'activity', 'services', 'tasks'] as const;
 type Tab = typeof TABS[number];
+
+interface Task {
+  id: string;
+  text: string;
+  completed: boolean;
+  createdAt: string;
+  priority: 'low' | 'medium' | 'high';
+}
 
 export default function Home() {
   const [metrics, setMetrics] = React.useState<Metrics>({
@@ -61,6 +69,64 @@ export default function Home() {
   const [activeTab, setActiveTab] = React.useState<Tab>('overview');
   const [lastUpdate, setLastUpdate] = React.useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [tasks, setTasks] = React.useState<Task[]>([]);
+  const [newTaskText, setNewTaskText] = React.useState('');
+  const [newTaskPriority, setNewTaskPriority] = React.useState<'low' | 'medium' | 'high'>('medium');
+  const [showTaskInput, setShowTaskInput] = React.useState(false);
+
+  const fetchTasks = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/tasks');
+      if (res.ok) {
+        const data = await res.json();
+        setTasks(data.tasks || []);
+      }
+    } catch (e) {
+      console.error('Failed to fetch tasks:', e);
+    }
+  }, []);
+
+  const addTask = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!newTaskText.trim()) return;
+
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newTaskText, priority: newTaskPriority }),
+      });
+      if (res.ok) {
+        setNewTaskText('');
+        setShowTaskInput(false);
+        fetchTasks();
+      }
+    } catch (e) {
+      console.error('Failed to add task:', e);
+    }
+  };
+
+  const toggleTask = async (id: string, completed: boolean) => {
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, completed: !completed }),
+      });
+      if (res.ok) fetchTasks();
+    } catch (e) {
+      console.error('Failed to toggle task:', e);
+    }
+  };
+
+  const deleteTask = async (id: string) => {
+    try {
+      const res = await fetch(`/api/tasks?id=${id}`, { method: 'DELETE' });
+      if (res.ok) fetchTasks();
+    } catch (e) {
+      console.error('Failed to delete task:', e);
+    }
+  };
 
   const fetchAll = React.useCallback(async () => {
     setIsRefreshing(true);
@@ -100,15 +166,39 @@ export default function Home() {
 
   React.useEffect(() => {
     fetchAll();
-    const interval = setInterval(fetchAll, 30000);
+    fetchTasks();
+    const interval = setInterval(() => {
+      fetchAll();
+      fetchTasks();
+    }, 30000);
     return () => clearInterval(interval);
-  }, [fetchAll]);
+  }, [fetchAll, fetchTasks]);
 
   const { showHelp, setShowHelp } = useKeyboardShortcuts({
     onRefresh: fetchAll,
     onTabChange: (tab) => setActiveTab(tab as Tab),
     tabs: [...TABS]
   });
+
+  // Handle 'T' key for quick task add
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      if (e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+        setActiveTab('tasks');
+        setShowTaskInput(true);
+        setTimeout(() => {
+          const input = document.querySelector('[data-task-input]') as HTMLInputElement;
+          input?.focus();
+        }, 100);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const getWeatherIcon = (code: number) => {
     if (code === 0) return '☀️';
@@ -181,6 +271,7 @@ export default function Home() {
               {tab === 'overview' && '📊 Overview'}
               {tab === 'activity' && '🐙 Activity'}
               {tab === 'services' && '🔌 Services'}
+              {tab === 'tasks' && `✅ Tasks ${tasks.filter(t => !t.completed).length > 0 ? `(${tasks.filter(t => !t.completed).length})` : ''}`}
             </button>
           ))}
         </nav>
@@ -427,6 +518,107 @@ export default function Home() {
                     <span style={styles.linkText}>AWB Tracker</span>
                   </a>
                 </div>
+              </div>
+            </CardErrorBoundary>
+          </div>
+        )}
+
+        {activeTab === 'tasks' && (
+          <div style={styles.singleColumn}>
+            <CardErrorBoundary title="Task Manager">
+              <div style={styles.card}>
+                <div style={styles.cardHeader}>
+                  <h2 style={styles.cardTitle}>✅ Tasks</h2>
+                  <button
+                    onClick={() => setShowTaskInput(!showTaskInput)}
+                    style={styles.addButton}
+                    title="Add new task (T)"
+                  >
+                    {showTaskInput ? '✕' : '+ Add Task'}
+                  </button>
+                </div>
+
+                {showTaskInput && (
+                  <form onSubmit={addTask} style={styles.taskForm}>
+                    <input
+                      data-task-input
+                      type="text"
+                      value={newTaskText}
+                      onChange={(e) => setNewTaskText(e.target.value)}
+                      placeholder="What needs to be done?"
+                      style={styles.taskInput}
+                      autoFocus
+                    />
+                    <select
+                      value={newTaskPriority}
+                      onChange={(e) => setNewTaskPriority(e.target.value as 'low' | 'medium' | 'high')}
+                      style={styles.prioritySelect}
+                    >
+                      <option value="low">🟢 Low</option>
+                      <option value="medium">🟡 Medium</option>
+                      <option value="high">🔴 High</option>
+                    </select>
+                    <button type="submit" style={styles.submitButton}>Add</button>
+                  </form>
+                )}
+
+                <div style={styles.taskStats}>
+                  <span style={styles.taskStat}>
+                    <strong>{tasks.filter(t => !t.completed).length}</strong> pending
+                  </span>
+                  <span style={styles.taskStat}>
+                    <strong>{tasks.filter(t => t.completed).length}</strong> done
+                  </span>
+                  <span style={styles.taskStat}>
+                    <strong>{tasks.length}</strong> total
+                  </span>
+                </div>
+
+                {tasks.length === 0 ? (
+                  <div style={styles.emptyState}>
+                    No tasks yet. Press <kbd style={styles.inlineKey}>T</kbd> to add one!
+                  </div>
+                ) : (
+                  <div style={styles.taskList}>
+                    {tasks.map((task) => (
+                      <div
+                        key={task.id}
+                        style={{
+                          ...styles.taskItem,
+                          ...(task.completed ? styles.taskCompleted : {})
+                        }}
+                      >
+                        <button
+                          onClick={() => toggleTask(task.id, task.completed)}
+                          style={styles.taskCheckbox}
+                          title={task.completed ? 'Mark incomplete' : 'Mark complete'}
+                        >
+                          {task.completed ? '☑️' : '⬜'}
+                        </button>
+                        <div style={styles.taskContent}>
+                          <span style={styles.taskText}>{task.text}</span>
+                          <span
+                            style={{
+                              ...styles.taskPriority,
+                              background:
+                                task.priority === 'high' ? '#da3633' :
+                                task.priority === 'medium' ? '#f0883e' : '#238636'
+                            }}
+                          >
+                            {task.priority}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => deleteTask(task.id)}
+                          style={styles.deleteButton}
+                          title="Delete task"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </CardErrorBoundary>
           </div>
@@ -833,5 +1025,129 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#8b949e',
     padding: '2rem',
     fontStyle: 'italic'
+  },
+  // Task-related styles
+  addButton: {
+    background: '#238636',
+    color: '#fff',
+    border: 'none',
+    padding: '0.5rem 1rem',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '0.85rem',
+    fontWeight: 500,
+    transition: 'background 0.2s'
+  },
+  taskForm: {
+    display: 'flex',
+    gap: '0.5rem',
+    marginBottom: '1rem',
+    flexWrap: 'wrap' as const
+  },
+  taskInput: {
+    flex: 1,
+    minWidth: '200px',
+    background: '#0d1117',
+    border: '1px solid #30363d',
+    borderRadius: '6px',
+    padding: '0.5rem 0.75rem',
+    color: '#c9d1d9',
+    fontSize: '0.9rem'
+  },
+  prioritySelect: {
+    background: '#0d1117',
+    border: '1px solid #30363d',
+    borderRadius: '6px',
+    padding: '0.5rem 0.75rem',
+    color: '#c9d1d9',
+    fontSize: '0.9rem',
+    cursor: 'pointer'
+  },
+  submitButton: {
+    background: '#1f6feb',
+    color: '#fff',
+    border: 'none',
+    padding: '0.5rem 1rem',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '0.85rem',
+    fontWeight: 500
+  },
+  taskStats: {
+    display: 'flex',
+    gap: '1rem',
+    marginBottom: '1rem',
+    padding: '0.75rem',
+    background: '#0d1117',
+    borderRadius: '8px'
+  },
+  taskStat: {
+    fontSize: '0.85rem',
+    color: '#8b949e'
+  },
+  taskList: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '0.5rem'
+  },
+  taskItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    padding: '0.75rem',
+    background: '#0d1117',
+    borderRadius: '8px',
+    transition: 'opacity 0.2s',
+    border: '1px solid transparent'
+  },
+  taskCompleted: {
+    opacity: 0.6
+  },
+  taskCheckbox: {
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '1.25rem',
+    padding: '0',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  taskContent: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    flexWrap: 'wrap' as const
+  },
+  taskText: {
+    flex: 1,
+    fontSize: '0.9rem'
+  },
+  taskPriority: {
+    fontSize: '0.7rem',
+    padding: '0.125rem 0.5rem',
+    borderRadius: '10px',
+    color: '#fff',
+    textTransform: 'uppercase' as const,
+    fontWeight: 600
+  },
+  deleteButton: {
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    padding: '0.25rem',
+    opacity: 0.6,
+    transition: 'opacity 0.2s'
+  },
+  inlineKey: {
+    background: '#30363d',
+    border: '1px solid #484f58',
+    borderRadius: '4px',
+    padding: '0.125rem 0.375rem',
+    fontFamily: 'monospace',
+    fontSize: '0.8rem',
+    color: '#c9d1d9'
   }
 };
