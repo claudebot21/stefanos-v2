@@ -3,6 +3,8 @@
 import React from 'react';
 import { ErrorBoundary, CardErrorBoundary } from '../components/ErrorBoundary';
 import { useKeyboardShortcuts, KeyboardShortcutsHelp } from '../components/KeyboardShortcuts';
+import { ThemeProvider, useTheme } from '../components/ThemeProvider';
+import { ThemeToggle, ThemeSelector } from '../components/ThemeToggle';
 
 interface Metrics {
   cpu: number;
@@ -56,7 +58,16 @@ interface Task {
   priority: 'low' | 'medium' | 'high';
 }
 
-export default function Home() {
+export default function HomeWrapper() {
+  return (
+    <ThemeProvider>
+      <Home />
+    </ThemeProvider>
+  );
+}
+
+function Home() {
+  const { resolvedTheme, toggleTheme } = useTheme();
   const [metrics, setMetrics] = React.useState<Metrics>({
     cpu: 0, memory: 0, disk: 0, load: 0, timestamp: ''
   });
@@ -177,6 +188,7 @@ export default function Home() {
   const { showHelp, setShowHelp } = useKeyboardShortcuts({
     onRefresh: fetchAll,
     onTabChange: (tab) => setActiveTab(tab as Tab),
+    onToggleTheme: toggleTheme,
     tabs: [...TABS]
   });
 
@@ -250,6 +262,7 @@ export default function Home() {
             >
               ⌨️
             </button>
+            <ThemeToggle />
             <div style={styles.statusBadge}>
               <span style={styles.statusDot}></span>
               Live
@@ -646,11 +659,12 @@ function MetricBar({ label, value }: { label: string; value: number }) {
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    background: '#0d1117',
-    color: '#c9d1d9',
+    background: 'var(--bg-primary, #0d1117)',
+    color: 'var(--text-primary, #c9d1d9)',
     minHeight: '100vh',
     padding: '2rem',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    transition: 'background 0.3s ease, color 0.3s ease'
   },
   header: {
     display: 'flex',
@@ -662,7 +676,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   title: {
     fontSize: '2rem',
-    background: 'linear-gradient(90deg, #58a6ff, #a371f7)',
+    background: 'linear-gradient(90deg, var(--accent-secondary, #58a6ff), #a371f7)',
     WebkitBackgroundClip: 'text',
     WebkitTextFillColor: 'transparent',
     margin: 0
@@ -673,12 +687,12 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.75rem'
   },
   lastUpdate: {
-    color: '#8b949e',
+    color: 'var(--text-secondary, #8b949e)',
     fontSize: '0.875rem'
   },
   refreshButton: {
-    background: '#161b22',
-    border: '1px solid #30363d',
+    background: 'var(--bg-secondary, #161b22)',
+    border: '1px solid var(--border-color, #30363d)',
     borderRadius: '6px',
     padding: '0.5rem 0.75rem',
     cursor: 'pointer',
@@ -686,8 +700,8 @@ const styles: Record<string, React.CSSProperties> = {
     transition: 'all 0.2s'
   },
   helpButton: {
-    background: '#161b22',
-    border: '1px solid #30363d',
+    background: 'var(--bg-secondary, #161b22)',
+    border: '1px solid var(--border-color, #30363d)',
     borderRadius: '6px',
     padding: '0.5rem 0.75rem',
     cursor: 'pointer',
@@ -698,11 +712,11 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '0.5rem',
-    background: '#161b22',
+    background: 'var(--bg-secondary, #161b22)',
     padding: '0.5rem 1rem',
     borderRadius: '20px',
     fontSize: '0.875rem',
-    border: '1px solid #30363d'
+    border: '1px solid var(--border-color, #30363d)'
   },
   statusDot: {
     width: '8px',
@@ -722,7 +736,7 @@ const styles: Record<string, React.CSSProperties> = {
   navButton: {
     background: 'transparent',
     border: 'none',
-    color: '#8b949e',
+    color: 'var(--text-secondary, #8b949e)',
     padding: '0.75rem 1.25rem',
     borderRadius: '6px',
     cursor: 'pointer',
@@ -730,7 +744,7 @@ const styles: Record<string, React.CSSProperties> = {
     transition: 'all 0.2s'
   },
   navButtonActive: {
-    background: '#1f6feb',
+    background: 'var(--accent-primary, #1f6feb)',
     color: '#fff'
   },
   grid: {
@@ -743,10 +757,11 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: '900px'
   },
   card: {
-    background: '#161b22',
-    border: '1px solid #30363d',
+    background: 'var(--card-bg, #161b22)',
+    border: '1px solid var(--border-color, #30363d)',
     borderRadius: '12px',
-    padding: '1.5rem'
+    padding: '1.5rem',
+    transition: 'background 0.3s ease, border-color 0.3s ease'
   },
   cardHeader: {
     display: 'flex',
@@ -756,7 +771,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   cardTitle: {
     fontSize: '1rem',
-    color: '#58a6ff',
+    color: 'var(--accent-secondary, #58a6ff)',
     margin: 0,
     fontWeight: 600
   },
@@ -854,17 +869,17 @@ const styles: Record<string, React.CSSProperties> = {
   statNumber: {
     fontSize: '1.75rem',
     fontWeight: 700,
-    color: '#58a6ff'
+    color: 'var(--accent-secondary, #58a6ff)'
   },
   statLabel: {
     fontSize: '0.75rem',
-    color: '#8b949e',
+    color: 'var(--text-secondary, #8b949e)',
     marginTop: '0.25rem',
     textTransform: 'uppercase'
   },
   sectionLabel: {
     fontSize: '0.75rem',
-    color: '#8b949e',
+    color: 'var(--text-secondary, #8b949e)',
     textTransform: 'uppercase',
     marginBottom: '0.5rem'
   },
@@ -907,7 +922,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   prTitle: {
     fontSize: '0.9rem',
-    color: '#58a6ff'
+    color: 'var(--accent-secondary, #58a6ff)'
   },
   activityList: {
     display: 'flex',
@@ -935,7 +950,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   activityTime: {
     fontSize: '0.75rem',
-    color: '#8b949e',
+    color: 'var(--text-secondary, #8b949e)',
     marginTop: '0.25rem'
   },
   overallStatus: {
@@ -1017,12 +1032,12 @@ const styles: Record<string, React.CSSProperties> = {
   },
   loading: {
     textAlign: 'center',
-    color: '#8b949e',
+    color: 'var(--text-secondary, #8b949e)',
     padding: '2rem'
   },
   emptyState: {
     textAlign: 'center',
-    color: '#8b949e',
+    color: 'var(--text-secondary, #8b949e)',
     padding: '2rem',
     fontStyle: 'italic'
   },

@@ -5,12 +5,14 @@ import React from 'react';
 interface UseKeyboardShortcutsOptions {
   onRefresh?: () => void;
   onTabChange?: (tab: string) => void;
+  onToggleTheme?: () => void;
   tabs?: string[];
 }
 
 export function useKeyboardShortcuts({ 
   onRefresh, 
   onTabChange,
+  onToggleTheme,
   tabs = []
 }: UseKeyboardShortcutsOptions) {
   const [showHelp, setShowHelp] = React.useState(false);
@@ -33,6 +35,13 @@ export function useKeyboardShortcuts({
       if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         onRefresh?.();
+        return;
+      }
+
+      // Cmd/Ctrl+Shift+L - Toggle theme
+      if ((e.key === 'l' || e.key === 'L') && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        onToggleTheme?.();
         return;
       }
 
@@ -61,7 +70,7 @@ export function useKeyboardShortcuts({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onRefresh, onTabChange, tabs]);
+  }, [onRefresh, onTabChange, onToggleTheme, tabs]);
 
   // Auto-hide help after 5 seconds
   React.useEffect(() => {
@@ -88,6 +97,7 @@ export function KeyboardShortcutsHelp({
     { key: 'R', description: 'Refresh all data' },
     { key: '1-4', description: 'Switch to tab 1-4' },
     { key: 'T', description: 'Quick add task' },
+    { key: '⌘⇧L', description: 'Toggle theme' },
     { key: '← →', description: 'Navigate tabs' },
   ];
 
@@ -129,8 +139,8 @@ const styles: Record<string, React.CSSProperties> = {
     backdropFilter: 'blur(4px)'
   },
   modal: {
-    background: '#161b22',
-    border: '1px solid #30363d',
+    background: 'var(--bg-secondary, #161b22)',
+    border: '1px solid var(--border-color, #30363d)',
     borderRadius: '12px',
     padding: '1.5rem',
     minWidth: '320px',
@@ -142,18 +152,18 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: '1rem',
-    borderBottom: '1px solid #30363d',
+    borderBottom: '1px solid var(--border-color, #30363d)',
     paddingBottom: '0.75rem'
   },
   title: {
     margin: 0,
-    color: '#c9d1d9',
+    color: 'var(--text-primary, #c9d1d9)',
     fontSize: '1.1rem'
   },
   closeButton: {
     background: 'transparent',
     border: 'none',
-    color: '#8b949e',
+    color: 'var(--text-secondary, #8b949e)',
     fontSize: '1.5rem',
     cursor: 'pointer',
     padding: '0',
@@ -175,35 +185,35 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '1rem'
   },
   key: {
-    background: '#0d1117',
-    border: '1px solid #30363d',
+    background: 'var(--bg-tertiary, #0d1117)',
+    border: '1px solid var(--border-color, #30363d)',
     borderRadius: '4px',
     padding: '0.25rem 0.5rem',
     fontFamily: 'monospace',
     fontSize: '0.85rem',
-    color: '#58a6ff',
-    minWidth: '40px',
+    color: 'var(--accent-secondary, #58a6ff)',
+    minWidth: '50px',
     textAlign: 'center'
   },
   description: {
-    color: '#c9d1d9',
+    color: 'var(--text-primary, #c9d1d9)',
     fontSize: '0.9rem'
   },
   footer: {
     marginTop: '1rem',
     paddingTop: '0.75rem',
-    borderTop: '1px solid #30363d',
-    color: '#8b949e',
+    borderTop: '1px solid var(--border-color, #30363d)',
+    color: 'var(--text-secondary, #8b949e)',
     fontSize: '0.8rem',
     textAlign: 'center'
   },
   inlineKey: {
-    background: '#0d1117',
-    border: '1px solid #30363d',
+    background: 'var(--bg-tertiary, #0d1117)',
+    border: '1px solid var(--border-color, #30363d)',
     borderRadius: '3px',
     padding: '0.125rem 0.375rem',
     fontFamily: 'monospace',
     fontSize: '0.75rem',
-    color: '#58a6ff'
+    color: 'var(--accent-secondary, #58a6ff)'
   }
 };
